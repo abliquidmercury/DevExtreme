@@ -129,6 +129,7 @@ function applyBatch({ keyInfo, data, changes, groupCount, useInsertIndex, immuta
         switch(item.type) {
             case 'update': update(keyInfo, items, item.key, item.data, true, immutable, logError); break;
             case 'insert': insert(keyInfo, items, item.data, useInsertIndex && isDefined(item.index) ? item.index : -1, true, logError, skipCopying); break;
+            case 'upsert': upsert(keyInfo, items, item.data, useInsertIndex && isDefined(item.index) ? item.index : -1, true, logError, skipCopying, immutable); break;
             case 'remove': remove(keyInfo, items, item.key, true, logError); break;
         }
     });
@@ -212,6 +213,40 @@ function insert(keyInfo, array, data, index, isBatch, logError, skipCopying) {
         } else {
             if(array[indexByKey(keyInfo, array, keyValue)] !== undefined) {
                 return getErrorResult(isBatch, logError, 'E4008');
+            }
+        }
+    } else {
+        keyValue = obj;
+    }
+    if(index >= 0) {
+        array.splice(index, 0, obj);
+    } else {
+        array.push(obj);
+    }
+
+    setDataByKeyMapValue(array, keyValue, obj);
+
+    if(!isBatch) {
+        return trivialPromise(config().useLegacyStoreResult ? data : obj, keyValue);
+    }
+}
+
+function upsert(keyInfo, array, data, index, isBatch, logError, skipCopying, immutable) {
+    let keyValue;
+    const keyExpr = keyInfo.key();
+
+    const obj = isPlainObject(data) && !skipCopying ? extend({}, data) : data;
+
+    if(keyExpr) {
+        keyValue = keyInfo.keyOf(obj);
+        if(keyValue === undefined || typeof keyValue === 'object' && isEmptyObject(keyValue)) {
+            if(Array.isArray(keyExpr)) {
+                throw errors.Error('E4007');
+            }
+            keyValue = obj[keyExpr] = String(new Guid());
+        } else {
+            if(array[indexByKey(keyInfo, array, keyValue)] !== undefined) {
+                return update(keyInfo, array, keyValue, data, isBatch, immutable, logError);
             }
         }
     } else {
